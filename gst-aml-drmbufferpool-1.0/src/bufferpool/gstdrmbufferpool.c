@@ -24,8 +24,8 @@ G_DEFINE_TYPE (GstDRMBufferPool, gst_drm_bufferpool, GST_TYPE_VIDEO_BUFFER_POOL)
 static const gchar **
 gst_drm_bufferpool_get_options (GstBufferPool * pool)
 {
-  static const gchar *options[] = { GST_BUFFER_POOL_OPTION_VIDEO_META, NULL };
-  return options;
+    static const gchar *options[] = { GST_BUFFER_POOL_OPTION_VIDEO_META, NULL };
+    return options;
 }
 
 static gboolean
@@ -34,22 +34,33 @@ gst_drm_bufferpool_set_config(GstBufferPool *pool, GstStructure *config)
     GstDRMBufferPool *self = GST_DRM_BUFFER_POOL_CAST(pool);
     GstCaps *caps = NULL;
     guint min_buffers, max_buffers;
+    GstVideoAlignment align;
+    int i;
+    guint height;
 
     if (!gst_buffer_pool_config_get_params(config, &caps, NULL, &min_buffers,
             &max_buffers))
         goto wrong_config;
     if (caps == NULL)
-      goto no_caps;
+        goto no_caps;
 
-    if (!gst_video_info_from_caps (&self->vinfo, caps))
-      goto wrong_caps;
-    gst_caps_replace (&self->caps, caps);
+    if (!gst_video_info_from_caps(&self->vinfo, caps))
+        goto wrong_caps;
+    gst_caps_replace(&self->caps, caps);
+
+    gst_video_alignment_reset(&align);
+    for (i = 0; i < GST_VIDEO_INFO_N_PLANES(&self->vinfo); i++)
+        align.stride_align[i] = 63;
+    height = GST_VIDEO_INFO_HEIGHT(&self->vinfo);
+    align.padding_bottom = ALIGN_PAD(height, 64) - height;
+    gst_video_info_align(&self->vinfo, &align);
 
     self->add_videometa = gst_buffer_pool_config_has_option (config,
           GST_BUFFER_POOL_OPTION_VIDEO_META);
     if (self->allocator)
         gst_object_unref(self->allocator);
     self->allocator = gst_drm_allocator_get();
+    gst_buffer_pool_config_set_video_alignment(config, &align);
     gst_buffer_pool_config_set_params (config, caps,
           self->vinfo.size, min_buffers, max_buffers);
 
@@ -86,7 +97,8 @@ gst_drm_bufferpool_alloc_buffer(GstBufferPool *pool, GstBuffer **buffer,
 
 
     format = GST_VIDEO_INFO_FORMAT(&self->vinfo);
-    if (format != GST_VIDEO_FORMAT_NV12)
+    if (format != GST_VIDEO_FORMAT_NV12
+            && format != GST_VIDEO_FORMAT_NV21)
         goto not_support;
 
     if (!(buf = gst_buffer_new())) {
@@ -101,8 +113,16 @@ gst_drm_bufferpool_alloc_buffer(GstBufferPool *pool, GstBuffer **buffer,
         GstMemory *mem;
         GstAllocationParams params2 = { 0 };
         guint size;
-        if (self->afbc)
+
+        switch (self->flag) {
+        case GST_DRM_BUFFERPOOL_TYPE_AFBC :
             params2.flags |= GST_MEMORY_FLAG_FMT_AFBC;
+            break;
+        case GST_DRM_BUFFERPOOL_TYPE_VIDEO_PLANE :
+            params2.flags |= GST_MEMORY_FLAG_VIDEO_PLANE;
+            break;
+        }
+
         if (self->secure)
             params2.flags |= GST_MEMORY_FLAG_SECURE;
 
@@ -112,6 +132,8 @@ gst_drm_bufferpool_alloc_buffer(GstBufferPool *pool, GstBuffer **buffer,
             size = width * height / 2;
         }
         mem = gst_allocator_alloc(self->allocator, size, &params2);
+
+        GST_LOG_OBJECT(pool, "alloc video info size is %d", size);
         if (!mem) {
             gst_buffer_unref(buf);
             goto mem_create_failed;
@@ -182,15 +204,15 @@ gst_drm_bufferpool_init(GstDRMBufferPool *pool)
 }
 
 GstBufferPool *
-gst_drm_bufferpool_new (gboolean secure, gboolean afbc)
+gst_drm_bufferpool_new (gboolean secure, GstBufpoolFlags flag)
 {
-  GstDRMBufferPool *pool;
+    GstDRMBufferPool *pool;
 
-  pool = g_object_new (GST_TYPE_DRM_BUFFER_POOL, NULL);
-  g_object_ref_sink (pool);
-  pool->secure = secure;
-  pool->afbc = afbc;
+    pool = g_object_new(GST_TYPE_DRM_BUFFER_POOL, NULL);
+    g_object_ref_sink(pool);
+    pool->secure = secure;
+    pool->flag = flag;
 
-  return GST_BUFFER_POOL_CAST (pool);
+    return GST_BUFFER_POOL_CAST(pool);
 }
 

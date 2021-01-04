@@ -24,6 +24,13 @@ G_BEGIN_DECLS
 typedef struct _GstDRMBufferPoolClass GstDRMBufferPoolClass;
 typedef struct _GstDRMBufferPool GstDRMBufferPool;
 
+typedef enum {
+    GST_DRM_BUFFERPOOL_TYPE_AFBC,
+    GST_DRM_BUFFERPOOL_TYPE_VIDEO_PLANE,
+    GST_DRM_BUFFERPOOL_TYPE_ION
+} GstBufpoolFlags;
+
+
 struct _GstDRMBufferPool
 {
     GstVideoBufferPool          parent;
@@ -31,8 +38,8 @@ struct _GstDRMBufferPool
     GstVideoInfo                vinfo;
     GstCaps                     *caps;
     gboolean                    add_videometa;
+    GstBufpoolFlags             flag;
     gboolean                    secure;
-    gboolean                    afbc;
 };
 
 struct _GstDRMBufferPoolClass
@@ -44,7 +51,7 @@ struct _GstDRMBufferPoolClass
 
 GType gst_drm_bufferpool_get_type (void);
 
-GstBufferPool *gst_drm_bufferpool_new (gboolean secure, gboolean afbc);
+GstBufferPool *gst_drm_bufferpool_new (gboolean secure, GstBufpoolFlags flag);
 
 G_END_DECLS
 

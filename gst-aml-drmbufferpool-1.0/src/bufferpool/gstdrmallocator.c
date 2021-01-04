@@ -42,8 +42,10 @@ gst_drm_mem_alloc (GstAllocator * allocator, gsize size,
     creq.bpp = 8;
     if (params->flags & GST_MEMORY_FLAG_FMT_AFBC)
         creq.flags = MESON_USE_VIDEO_AFBC;
-    else
+    else if (params->flags & GST_MEMORY_FLAG_VIDEO_PLANE)
         creq.flags = MESON_USE_VIDEO_PLANE;
+    else
+        creq.flags = MESON_USE_NONE;
 
     if (params->flags & GST_MEMORY_FLAG_SECURE)
         creq.flags |= MESON_USE_PROTECTED;
@@ -162,6 +164,15 @@ gst_drm_allocator_get (void)
     alloc = gst_allocator_find (GST_ALLOCATOR_DRM);
   }
   return alloc;
+}
+
+GstAllocator *
+gst_drm_allocator_new (void)
+{
+    GstAllocator *alloc;
+    alloc = g_object_new(GST_TYPE_DRM_ALLOCATOR, NULL);
+    gst_object_ref_sink(alloc);
+    return alloc;
 }
 
 gboolean

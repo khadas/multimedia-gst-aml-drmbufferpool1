@@ -35,9 +35,11 @@ typedef struct _GstDRMAllocatorClass GstDRMAllocatorClass;
 
 #define GST_ALLOCATOR_DRM "drm"
 
-enum {
+enum
+{
     GST_MEMORY_FLAG_FMT_AFBC        = GST_MEMORY_FLAG_LAST << 0,
     GST_MEMORY_FLAG_SECURE          = GST_MEMORY_FLAG_LAST << 1,
+    GST_MEMORY_FLAG_VIDEO_PLANE     = GST_MEMORY_FLAG_LAST << 2
 };
 
 struct _GstDRMAllocator
@@ -53,6 +55,7 @@ struct _GstDRMAllocatorClass
 
 GType           gst_drm_allocator_get_type (void);
 GstAllocator *  gst_drm_allocator_get (void);
+GstAllocator *  gst_drm_allocator_new (void);
 gboolean        gst_is_drm_memory (GstMemory *mem);
 
 G_END_DECLS
