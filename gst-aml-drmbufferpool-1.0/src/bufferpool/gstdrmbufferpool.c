@@ -24,7 +24,10 @@ G_DEFINE_TYPE (GstDRMBufferPool, gst_drm_bufferpool, GST_TYPE_VIDEO_BUFFER_POOL)
 static const gchar **
 gst_drm_bufferpool_get_options (GstBufferPool * pool)
 {
-    static const gchar *options[] = { GST_BUFFER_POOL_OPTION_VIDEO_META, NULL };
+    static const gchar *options[] = {
+        GST_BUFFER_POOL_OPTION_VIDEO_META,
+        GST_BUFFER_POOL_OPTION_VIDEO_ALIGNMENT,
+        NULL};
     return options;
 }
 
@@ -33,13 +36,9 @@ gst_drm_bufferpool_set_config(GstBufferPool *pool, GstStructure *config)
 {
     GstDRMBufferPool *self = GST_DRM_BUFFER_POOL_CAST(pool);
     GstCaps *caps = NULL;
-    guint min_buffers, max_buffers;
     GstVideoAlignment align;
-    int i;
-    guint height;
 
-    if (!gst_buffer_pool_config_get_params(config, &caps, NULL, &min_buffers,
-            &max_buffers))
+     if (!gst_buffer_pool_config_get_params(config, &caps, NULL, NULL, NULL))
         goto wrong_config;
     if (caps == NULL)
         goto no_caps;
@@ -47,22 +46,13 @@ gst_drm_bufferpool_set_config(GstBufferPool *pool, GstStructure *config)
     if (!gst_video_info_from_caps(&self->vinfo, caps))
         goto wrong_caps;
     gst_caps_replace(&self->caps, caps);
-
-    gst_video_alignment_reset(&align);
-    for (i = 0; i < GST_VIDEO_INFO_N_PLANES(&self->vinfo); i++)
-        align.stride_align[i] = 63;
-    height = GST_VIDEO_INFO_HEIGHT(&self->vinfo);
-    align.padding_bottom = ALIGN_PAD(height, 64) - height;
+    gst_buffer_pool_config_get_video_alignment(config, &align);
     gst_video_info_align(&self->vinfo, &align);
-
     self->add_videometa = gst_buffer_pool_config_has_option (config,
           GST_BUFFER_POOL_OPTION_VIDEO_META);
     if (self->allocator)
         gst_object_unref(self->allocator);
     self->allocator = gst_drm_allocator_get();
-    gst_buffer_pool_config_set_video_alignment(config, &align);
-    gst_buffer_pool_config_set_params (config, caps,
-          self->vinfo.size, min_buffers, max_buffers);
 
     return GST_BUFFER_POOL_CLASS (parent_class)->set_config (pool, config);
 
@@ -93,7 +83,6 @@ gst_drm_bufferpool_alloc_buffer(GstBufferPool *pool, GstBuffer **buffer,
     GstBuffer *buf;
     GstVideoFormat format;
     guint i;
-    guint width, height;
 
 
     format = GST_VIDEO_INFO_FORMAT(&self->vinfo);
@@ -104,15 +93,11 @@ gst_drm_bufferpool_alloc_buffer(GstBufferPool *pool, GstBuffer **buffer,
     if (!(buf = gst_buffer_new())) {
         goto no_buffer;
     }
-    width = GST_VIDEO_INFO_WIDTH(&self->vinfo);
-    height = GST_VIDEO_INFO_HEIGHT(&self->vinfo);
-    width = ALIGN_PAD(width, 64);
-    height = ALIGN_PAD(height, 64);
 
     for (i = 0; i < GST_VIDEO_INFO_N_PLANES(&self->vinfo); i++) {
         GstMemory *mem;
         GstAllocationParams params2 = { 0 };
-        guint size;
+        gsize size;
 
         switch (self->flag) {
         case GST_DRM_BUFFERPOOL_TYPE_AFBC :
@@ -126,14 +111,15 @@ gst_drm_bufferpool_alloc_buffer(GstBufferPool *pool, GstBuffer **buffer,
         if (self->secure)
             params2.flags |= GST_MEMORY_FLAG_SECURE;
 
-        if (i == 0) {
-            size = width * height;
+        if (i + 1 < GST_VIDEO_INFO_N_PLANES(&self->vinfo)) {
+            size = self->vinfo.offset[i + 1] - self->vinfo.offset[i];
         } else {
-            size = width * height / 2;
+            size = self->vinfo.size - self->vinfo.offset[i];
         }
+
         mem = gst_allocator_alloc(self->allocator, size, &params2);
 
-        GST_LOG_OBJECT(pool, "alloc video info size is %d", size);
+        GST_LOG_OBJECT(pool, "alloc video info size is %lu", size);
         if (!mem) {
             gst_buffer_unref(buf);
             goto mem_create_failed;
@@ -142,6 +128,7 @@ gst_drm_bufferpool_alloc_buffer(GstBufferPool *pool, GstBuffer **buffer,
         gst_buffer_append_memory(buf, mem);
     }
     *buffer = buf;
+
     if (self->add_videometa) {
         gst_buffer_add_video_meta_full(*buffer,
                 GST_VIDEO_FRAME_FLAG_NONE,
