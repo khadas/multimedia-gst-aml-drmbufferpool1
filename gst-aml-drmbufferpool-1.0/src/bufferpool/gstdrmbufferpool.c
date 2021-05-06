@@ -36,9 +36,12 @@ gst_drm_bufferpool_set_config(GstBufferPool *pool, GstStructure *config)
 {
     GstDRMBufferPool *self = GST_DRM_BUFFER_POOL_CAST(pool);
     GstCaps *caps = NULL;
+    guint min_buffers, max_buffers;
     GstVideoAlignment align;
+    int i;
+    guint height;
 
-     if (!gst_buffer_pool_config_get_params(config, &caps, NULL, NULL, NULL))
+    if (!gst_buffer_pool_config_get_params(config, &caps, NULL, &min_buffers, &max_buffers))
         goto wrong_config;
     if (caps == NULL)
         goto no_caps;
@@ -46,7 +49,17 @@ gst_drm_bufferpool_set_config(GstBufferPool *pool, GstStructure *config)
     if (!gst_video_info_from_caps(&self->vinfo, caps))
         goto wrong_caps;
     gst_caps_replace(&self->caps, caps);
-    gst_buffer_pool_config_get_video_alignment(config, &align);
+    if (!gst_buffer_pool_config_get_video_alignment(config, &align)) {
+        GST_DEBUG_OBJECT(pool, "get_video_alignment failed reset align");
+        gst_video_alignment_reset(&align);
+        for (i = 0; i < GST_VIDEO_INFO_N_PLANES(&self->vinfo); i++)
+            align.stride_align[i] = 63;
+        height = GST_VIDEO_INFO_HEIGHT(&self->vinfo);
+        align.padding_bottom = ALIGN_PAD(height, 64) - height;
+        gst_buffer_pool_config_set_video_alignment(config, &align);
+        gst_buffer_pool_config_set_params (config, caps,
+             self->vinfo.size, min_buffers, max_buffers);
+      }
     gst_video_info_align(&self->vinfo, &align);
     self->add_videometa = gst_buffer_pool_config_has_option (config,
           GST_BUFFER_POOL_OPTION_VIDEO_META);
