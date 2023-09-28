@@ -135,11 +135,9 @@ static void
 gst_drm_allocator_init (GstDRMAllocator * self)
 {
     GstAllocator *allocator = GST_ALLOCATOR_CAST(self);
-    self->dev_fd = open("/dev/dri/card0", O_RDWR | O_CLOEXEC);
+    self->dev_fd = open("/dev/dri/renderD128", O_RDWR | O_CLOEXEC);
     if (self->dev_fd < 0) {
         GST_ERROR_OBJECT(self, "Failed to open DRM device");
-    } else {
-        drmDropMaster(self->dev_fd);
     }
 
     allocator->mem_type = GST_ALLOCATOR_DRM;
