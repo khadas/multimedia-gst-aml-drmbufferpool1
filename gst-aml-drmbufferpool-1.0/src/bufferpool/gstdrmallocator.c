@@ -28,35 +28,35 @@ gst_drm_mem_alloc (GstAllocator * allocator, gsize size,
 {
     GstDRMAllocator *self = GST_DRM_ALLOCATOR (allocator);
     GstMemory *mem = NULL;
-    struct drm_mode_create_dumb creq;
-    struct drm_mode_destroy_dumb dreq;
+    struct drm_meson_gem_create gc;
+    struct drm_gem_close gclose;
     int fd;
     int ret;
 
     g_return_val_if_fail (GST_IS_DRM_ALLOCATOR (allocator), NULL);
     g_return_val_if_fail(self->dev_fd >=0 , NULL);
 
-    memset(&creq, 0, sizeof(struct drm_mode_create_dumb));
-    creq.width = size;
-    creq.height = 1;
-    creq.bpp = 8;
+    memset(&gc, 0, sizeof(struct drm_meson_gem_create));
+    gc.size = size;
+
     if (params->flags & GST_MEMORY_FLAG_FMT_AFBC)
-        creq.flags = MESON_USE_VIDEO_AFBC;
+        gc.flags = MESON_USE_VIDEO_AFBC;
     else if (params->flags & GST_MEMORY_FLAG_VIDEO_PLANE)
-        creq.flags = MESON_USE_VIDEO_PLANE;
+        gc.flags = MESON_USE_VIDEO_PLANE;
     else
-        creq.flags = MESON_USE_NONE;
+        gc.flags = MESON_USE_NONE;
 
     if (params->flags & GST_MEMORY_FLAG_SECURE)
-        creq.flags |= MESON_USE_PROTECTED;
+        gc.flags |= MESON_USE_PROTECTED;
 
-    ret = drmIoctl(self->dev_fd, DRM_IOCTL_MODE_CREATE_DUMB, &creq);
+    GST_LOG("alloc drm buf size=%llu, flags=0x%x", gc.size, gc.flags);
+    ret = drmIoctl(self->dev_fd, DRM_IOCTL_MESON_GEM_CREATE, &gc );
     if (ret < 0) {
-        GST_ERROR_OBJECT(self, "Create DRM dumb buffer failed");
+        GST_ERROR_OBJECT(self, "Create DRM gem buffer failed");
         return NULL;
     }
 
-    drmPrimeHandleToFD (self->dev_fd, creq.handle, DRM_CLOEXEC | O_RDWR, &fd);
+    drmPrimeHandleToFD (self->dev_fd, gc.handle, DRM_CLOEXEC | O_RDWR, &fd);
 
     if (fd < 0) {
         GST_ERROR_OBJECT(self, "Invalid fd returned: %d", fd);
@@ -69,16 +69,16 @@ gst_drm_mem_alloc (GstAllocator * allocator, gsize size,
         goto error_alloc;
     }
 
-    GST_LOG("alloc dma %d", fd);
+    GST_LOG("alloc dma fd %d", fd);
 
     return mem;
 
 error_alloc:
     close(fd);
 error_get:
-    memset(&dreq, 0, sizeof(struct drm_mode_destroy_dumb));
-    dreq.handle = creq.handle;
-    drmIoctl(self->dev_fd, DRM_IOCTL_MODE_DESTROY_DUMB, &dreq);
+    memset( &gclose, 0, sizeof(struct drm_gem_close) );
+    gclose.handle = gc.handle;
+    drmIoctl(self->dev_fd, DRM_IOCTL_GEM_CLOSE, &gclose );
     return NULL;
 }
 
@@ -96,15 +96,15 @@ gst_drm_mem_free(GstAllocator *allocator, GstMemory *memory)
 
     fd = gst_fd_memory_get_fd(memory);
 
-    GST_LOG("free dma %d", fd);
+    GST_LOG("free dma fd %d", fd);
     drmPrimeFDToHandle(self->dev_fd, fd, &handle);
 
     GST_ALLOCATOR_CLASS (parent_class)->free(allocator, memory);
     if (handle) {
-        struct drm_mode_destroy_dumb dreq;
-        memset(&dreq, 0, sizeof(struct drm_mode_destroy_dumb));
-        dreq.handle = handle;
-        drmIoctl(self->dev_fd, DRM_IOCTL_MODE_DESTROY_DUMB, &dreq);
+        struct drm_gem_close gclose;
+        memset( &gclose, 0, sizeof(gclose) );
+        gclose.handle = handle;
+        drmIoctl(self->dev_fd, DRM_IOCTL_GEM_CLOSE, &gclose );
     }
 }
 
